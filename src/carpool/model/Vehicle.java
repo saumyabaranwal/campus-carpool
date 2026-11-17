@@ -1,9 +1,8 @@
 package carpool.model;
 
 import carpool.fare.FareCalculator;
-import java.io.Serializable;
 
-public abstract class Vehicle implements Serializable {
+public abstract class Vehicle {
     private final String number;
     private final String model;
     private final int capacity;

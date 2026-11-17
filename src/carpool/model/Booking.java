@@ -1,8 +1,7 @@
 package carpool.model;
 
-import java.io.Serializable;
 
-public class Booking implements Serializable, Jsonable {
+public class Booking implements Jsonable {
     private final int id;
     private final Ride ride;
     private final Passenger passenger;

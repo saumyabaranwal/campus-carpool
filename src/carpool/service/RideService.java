@@ -2,15 +2,13 @@ package carpool.service;
 
 import carpool.exception.NoSeatsAvailableException;
 import carpool.model.*;
-import java.io.*;
-import java.nio.file.*;
-import java.time.Duration;
-import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
 public class RideService {
-    private static final Path DATA_FILE = Path.of("data", "carpool.dat");
+    private static final long MINUTE = 60 * 1000L;
+    private static final long HOUR = 60 * MINUTE;
+    private static final long DAY = 24 * HOUR;
 
     private ArrayList<User> users = new ArrayList<>();
     private ArrayList<Ride> rides = new ArrayList<>();
@@ -18,96 +16,110 @@ public class RideService {
     private int nextId = 1;
 
     public RideService() {
-        load();
-        if (users.isEmpty()) SampleData.fill(this);
+        SampleData.fill(this);
     }
 
-    public synchronized User register(String id, String name, String contact, String role) {
+    public User register(String id, String name, String contact, String role) {
         if (isBlank(id) || isBlank(name) || isBlank(contact)) {
             throw new IllegalArgumentException("Please fill in all the details");
         }
-        if (!id.trim().matches("\\d{10}")) throw new IllegalArgumentException("Student ID must be 10 digits");
-        if (!name.trim().matches("[A-Za-z. ]{2,40}")) throw new IllegalArgumentException("Name should only have letters");
-        if (!contact.trim().matches("[6-9]\\d{9}")) throw new IllegalArgumentException("Enter a valid 10 digit mobile number");
+        id = id.trim();
+        name = name.trim();
+        contact = contact.trim();
+        if (id.length() != 10 || !allDigits(id)) {
+            throw new IllegalArgumentException("Student ID must be 10 digits");
+        }
+        if (!validName(name)) {
+            throw new IllegalArgumentException("Name should only have letters");
+        }
+        if (contact.length() != 10 || !allDigits(contact) || contact.charAt(0) < '6') {
+            throw new IllegalArgumentException("Enter a valid 10 digit mobile number");
+        }
         for (User u : users) {
             if (u.getId().equalsIgnoreCase(id)) {
                 if (!u.getRole().equals(role)) {
                     throw new IllegalArgumentException("This ID is registered as a " + u.getRole());
                 }
-                u.setName(name.trim());
-                u.setContact(contact.trim());
-                save();
+                u.setName(name);
+                u.setContact(contact);
                 return u;
             }
         }
         User user;
-        if (role.equals("driver")) user = new Driver(id.trim(), name.trim(), contact.trim());
-        else if (role.equals("passenger")) user = new Passenger(id.trim(), name.trim(), contact.trim());
+        if (role.equals("driver")) user = new Driver(id, name, contact);
+        else if (role.equals("passenger")) user = new Passenger(id, name, contact);
         else throw new IllegalArgumentException("Choose driver or passenger");
         users.add(user);
-        save();
         return user;
     }
 
-    public synchronized Ride createRide(String driverId, String source, String destination, String time,
-                                        String type, String number, String model, int seats, double fare) {
-        if (!(findUser(driverId) instanceof Driver driver)) {
+    public Ride createRide(String driverId, String source, String destination, long time,
+                           String type, String number, String model, int seats, double fare) {
+        User user = findUser(driverId);
+        if (!(user instanceof Driver)) {
             throw new IllegalArgumentException("Only drivers can offer rides");
         }
-        if (isBlank(source) || isBlank(destination) || isBlank(time) || isBlank(number) || isBlank(model)) {
+        Driver driver = (Driver) user;
+        if (isBlank(source) || isBlank(destination) || isBlank(number) || isBlank(model)) {
             throw new IllegalArgumentException("Please fill in all the ride details");
         }
         if (source.trim().equalsIgnoreCase(destination.trim())) {
             throw new IllegalArgumentException("Pickup and drop must be different places");
         }
-        if (fare < 10 || fare > 5000) throw new IllegalArgumentException("Total cost must be between 10 and 5000 rupees");
-        number = number.replaceAll("[\\s-]", "").toUpperCase();
-        if (!number.matches("[A-Z]{2}\\d{1,2}[A-Z]{0,3}\\d{4}")) {
+        if (fare < 10 || fare > 5000) {
+            throw new IllegalArgumentException("Total cost must be between 10 and 5000 rupees");
+        }
+        number = number.replace(" ", "").replace("-", "").toUpperCase();
+        if (!validPlate(number)) {
             throw new IllegalArgumentException("Enter a valid number plate, like UP16AB1234");
         }
-        LocalDateTime departure = LocalDateTime.parse(time);
-        if (departure.isBefore(LocalDateTime.now().plusMinutes(30))) {
+        long now = System.currentTimeMillis();
+        if (time < now + 30 * MINUTE) {
             throw new IllegalArgumentException("Departure must be at least 30 minutes from now");
         }
-        if (departure.isAfter(LocalDateTime.now().plusDays(30))) {
+        if (time > now + 30 * DAY) {
             throw new IllegalArgumentException("Rides can only be posted up to 30 days ahead");
         }
-        if (clashes(ridesOf(driverId), departure)) {
+        if (clashes(ridesOf(driverId), time)) {
             throw new IllegalArgumentException("You already have a ride around this time");
         }
         Vehicle vehicle;
         if (type.equals("bike")) {
-            vehicle = new Bike(number.trim(), model.trim());
+            vehicle = new Bike(number, model.trim());
         } else {
             if (seats < 1 || seats > 6) throw new IllegalArgumentException("Seats must be between 1 and 6");
-            vehicle = new Car(number.trim(), model.trim(), seats);
+            vehicle = new Car(number, model.trim(), seats);
         }
         Ride ride = new Ride(nextId++, driver, source.trim(), destination.trim(), time, vehicle, fare);
         rides.add(ride);
-        save();
         return ride;
     }
 
-    public synchronized List<Ride> search(String destination) {
-        String query = destination == null ? "" : destination.trim().toLowerCase();
+    public List<Ride> search(String destination) {
+        String query = "";
+        if (destination != null) query = destination.trim().toLowerCase();
         List<Ride> found = new ArrayList<>();
         for (Ride r : rides) {
-            if (!r.isCompleted() && r.getTime().isAfter(LocalDateTime.now()) && r.getDestination().toLowerCase().contains(query)) found.add(r);
+            boolean upcoming = r.getTime() > System.currentTimeMillis();
+            boolean matches = r.getDestination().toLowerCase().contains(query);
+            if (!r.isCompleted() && upcoming && matches) found.add(r);
         }
         return found;
     }
 
-    public synchronized Booking joinRide(int rideId, String passengerId) throws NoSeatsAvailableException {
-        if (!(findUser(passengerId) instanceof Passenger passenger)) {
+    public Booking joinRide(int rideId, String passengerId) throws NoSeatsAvailableException {
+        User user = findUser(passengerId);
+        if (!(user instanceof Passenger)) {
             throw new IllegalArgumentException("Only passengers can join rides");
         }
+        Passenger passenger = (Passenger) user;
         Ride ride = findRide(rideId);
         for (Booking b : bookings) {
             if (b.getRide() == ride && b.getPassenger() == passenger && !b.isCancelled()) {
                 throw new IllegalArgumentException("You have already booked this ride");
             }
         }
-        if (!ride.getTime().isAfter(LocalDateTime.now())) {
+        if (ride.getTime() <= System.currentTimeMillis()) {
             throw new IllegalArgumentException("This ride has already left");
         }
         List<Ride> booked = new ArrayList<>();
@@ -120,51 +132,48 @@ public class RideService {
         ride.bookSeat();
         Booking booking = new Booking(nextId++, ride, passenger);
         bookings.add(booking);
-        save();
         return booking;
     }
 
-    public synchronized void cancelBooking(int bookingId, String userId) {
+    public void cancelBooking(int bookingId, String userId) {
         for (Booking b : bookings) {
             if (b.getId() == bookingId && b.getPassenger().getId().equals(userId)) {
                 if (b.isCancelled()) throw new IllegalArgumentException("Booking is already cancelled");
-                if (b.getRide().getTime().isBefore(LocalDateTime.now().plusMinutes(30))) {
+                if (b.getRide().getTime() < System.currentTimeMillis() + 30 * MINUTE) {
                     throw new IllegalArgumentException("Bookings cannot be cancelled within 30 minutes of departure");
                 }
                 b.cancel();
-                save();
                 return;
             }
         }
         throw new IllegalArgumentException("Booking not found");
     }
 
-    public synchronized void completeRide(int rideId, String driverId) {
+    public void completeRide(int rideId, String driverId) {
         Ride ride = findRide(rideId);
         if (!ride.getDriver().getId().equals(driverId)) {
             throw new IllegalArgumentException("This is not your ride");
         }
         ride.complete();
-        save();
     }
 
-    public synchronized List<Ride> ridesOf(String driverId) {
+    public List<Ride> ridesOf(String driverId) {
         List<Ride> mine = new ArrayList<>();
         for (Ride r : rides) if (r.getDriver().getId().equals(driverId)) mine.add(r);
         return mine;
     }
 
-    public synchronized List<Booking> bookingsOf(String passengerId) {
+    public List<Booking> bookingsOf(String passengerId) {
         List<Booking> mine = new ArrayList<>();
         for (Booking b : bookings) if (b.getPassenger().getId().equals(passengerId)) mine.add(b);
         return mine;
     }
 
     // two trips less than an hour apart are treated as overlapping
-    private boolean clashes(List<Ride> existing, LocalDateTime time) {
+    private boolean clashes(List<Ride> existing, long time) {
         for (Ride r : existing) {
-            long gap = Math.abs(Duration.between(r.getTime(), time).toMinutes());
-            if (!r.isCompleted() && gap < 60) return true;
+            long gap = Math.abs(r.getTime() - time);
+            if (!r.isCompleted() && gap < HOUR) return true;
         }
         return false;
     }
@@ -180,32 +189,35 @@ public class RideService {
     }
 
     private boolean isBlank(String s) {
-        return s == null || s.isBlank();
+        return s == null || s.trim().length() == 0;
     }
 
-    private void save() {
-        try {
-            Files.createDirectories(DATA_FILE.getParent());
-            try (ObjectOutputStream out = new ObjectOutputStream(Files.newOutputStream(DATA_FILE))) {
-                // one write keeps the links between rides, users and bookings intact
-                out.writeObject(new Object[]{users, rides, bookings, nextId});
-            }
-        } catch (IOException e) {
-            System.out.println("Could not save data: " + e.getMessage());
+    private boolean allDigits(String s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c < '0' || c > '9') return false;
         }
+        return true;
     }
 
-    @SuppressWarnings("unchecked")
-    private void load() {
-        if (!Files.exists(DATA_FILE)) return;
-        try (ObjectInputStream in = new ObjectInputStream(Files.newInputStream(DATA_FILE))) {
-            Object[] saved = (Object[]) in.readObject();
-            users = (ArrayList<User>) saved[0];
-            rides = (ArrayList<Ride>) saved[1];
-            bookings = (ArrayList<Booking>) saved[2];
-            nextId = (int) saved[3];
-        } catch (IOException | ClassNotFoundException e) {
-            System.out.println("Starting fresh, could not read saved data");
+    private boolean validName(String name) {
+        if (name.length() < 2 || name.length() > 40) return false;
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (!Character.isLetter(c) && c != ' ' && c != '.') return false;
         }
+        return true;
+    }
+
+    // two letters first, four digits last, only letters and digits in between
+    private boolean validPlate(String plate) {
+        if (plate.length() < 6 || plate.length() > 10) return false;
+        for (int i = 0; i < plate.length(); i++) {
+            char c = plate.charAt(i);
+            boolean ok = (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+            if (!ok) return false;
+        }
+        boolean lettersFirst = Character.isLetter(plate.charAt(0)) && Character.isLetter(plate.charAt(1));
+        return lettersFirst && allDigits(plate.substring(plate.length() - 4));
     }
 }

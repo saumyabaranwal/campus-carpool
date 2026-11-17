@@ -176,7 +176,9 @@ function offerView(box) {
   document.getElementById("offer").onsubmit = (e) => {
     e.preventDefault();
     attempt(async () => {
-      await api("rides/create", Object.fromEntries(new FormData(e.target)));
+      const data = Object.fromEntries(new FormData(e.target));
+      data.time = new Date(data.time).getTime();
+      await api("rides/create", data);
       tab = "mine";
       render();
     }, "Ride posted");

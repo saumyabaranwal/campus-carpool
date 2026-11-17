@@ -1,22 +1,20 @@
 package carpool.model;
 
 import carpool.exception.NoSeatsAvailableException;
-import java.io.Serializable;
-import java.time.LocalDateTime;
 
-public class Ride implements Serializable, Jsonable {
+public class Ride implements Jsonable {
     private final int id;
     private final Driver driver;
     private final String source;
     private final String destination;
-    private final String time;
+    private final long time;
     private final Vehicle vehicle;
     private final double totalFare;
     private int seatsLeft;
     private boolean completed;
 
     public Ride(int id, Driver driver, String source, String destination,
-                String time, Vehicle vehicle, double totalFare) {
+                long time, Vehicle vehicle, double totalFare) {
         this.id = id;
         this.driver = driver;
         this.source = source;
@@ -30,7 +28,7 @@ public class Ride implements Serializable, Jsonable {
     public int getId() { return id; }
     public Driver getDriver() { return driver; }
     public String getDestination() { return destination; }
-    public LocalDateTime getTime() { return LocalDateTime.parse(time); }
+    public long getTime() { return time; }
     public int getSeatsLeft() { return seatsLeft; }
     public boolean isCompleted() { return completed; }
 
@@ -52,14 +50,14 @@ public class Ride implements Serializable, Jsonable {
 
     public String toJson() {
         return "{\"id\":" + id
-                + ",\"driver\":" + Jsonable.quote(driver.getName())
-                + ",\"contact\":" + Jsonable.quote(driver.getContact())
-                + ",\"source\":" + Jsonable.quote(source)
-                + ",\"destination\":" + Jsonable.quote(destination)
-                + ",\"time\":" + Jsonable.quote(time)
-                + ",\"vehicle\":" + Jsonable.quote(vehicle.getType())
-                + ",\"model\":" + Jsonable.quote(vehicle.getModel())
-                + ",\"number\":" + Jsonable.quote(vehicle.getNumber())
+                + ",\"driver\":" + Json.quote(driver.getName())
+                + ",\"contact\":" + Json.quote(driver.getContact())
+                + ",\"source\":" + Json.quote(source)
+                + ",\"destination\":" + Json.quote(destination)
+                + ",\"time\":" + time
+                + ",\"vehicle\":" + Json.quote(vehicle.getType())
+                + ",\"model\":" + Json.quote(vehicle.getModel())
+                + ",\"number\":" + Json.quote(vehicle.getNumber())
                 + ",\"capacity\":" + vehicle.getCapacity()
                 + ",\"seatsLeft\":" + seatsLeft
                 + ",\"fare\":" + farePerSeat()

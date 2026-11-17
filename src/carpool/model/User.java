@@ -1,8 +1,7 @@
 package carpool.model;
 
-import java.io.Serializable;
 
-public abstract class User implements Serializable, Jsonable {
+public abstract class User implements Jsonable {
     private final String id;
     private String name;
     private String contact;
@@ -22,7 +21,7 @@ public abstract class User implements Serializable, Jsonable {
     public abstract String getRole();
 
     public String toJson() {
-        return "{\"id\":" + Jsonable.quote(id) + ",\"name\":" + Jsonable.quote(name)
-                + ",\"contact\":" + Jsonable.quote(contact) + ",\"role\":" + Jsonable.quote(getRole()) + "}";
+        return "{\"id\":" + Json.quote(id) + ",\"name\":" + Json.quote(name)
+                + ",\"contact\":" + Json.quote(contact) + ",\"role\":" + Json.quote(getRole()) + "}";
     }
 }
